@@ -3,11 +3,12 @@ name: Azure Login with OIDC
 on:
   push:
   workflow_dispatch:
-permissions:
-  id-token: write
-  contents: read
+
 jobs:
   login-to-azure:
+    permissions:
+     id-token: write
+     contents: read
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
