@@ -2,7 +2,6 @@ name: Azure Login with OIDC
 
 on:
   push:
-  dispatch:
   workflow_dispatch:
 jobs:
   login-to-azure:
