@@ -3,6 +3,9 @@ name: Azure Login with OIDC
 on:
   push:
   workflow_dispatch:
+permissions:
+  id-token: write
+  contents: read
 jobs:
   login-to-azure:
     runs-on: ubuntu-latest
