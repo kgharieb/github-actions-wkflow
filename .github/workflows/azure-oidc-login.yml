@@ -44,10 +44,19 @@ jobs:
             -backend-config="key=terraform.tfstate" \
             -backend-config="use_oidc=true" \
             -backend-config="use_azuread_auth=true"
-
+      - name: Terraform Plan
+        id: plan
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ARM_USE_OIDC: "true"
+        run: terraform plan
+        continue-on-error: true
 
       - name: Terraform Apply
         id: apply
+        if: steps.plan.outputs.exitcode == 2
         env:
           ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
