@@ -1,26 +1,22 @@
 name: Deploy Terraform to Azure with OIDC
-
 on:
   workflow_dispatch:
-
 permissions:
   id-token: write # Required for OIDC connection to Azure
-  contents: read  # Required for actions/checkout
-
+  contents: read # Required for actions/checkout
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
+        
       - name: Azure Login with OIDC
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          # enable-AzPSSession: true # This is only needed if you run PowerShell commands
           
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
@@ -33,8 +29,6 @@ jobs:
           ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          STORAGE_ACCOUNT_NAME: ${{ secrets.STORAGE_ACCOUNT_NAME }}
-          CONTAINER_NAME: ${{ secrets.CONTAINER_NAME }}
           ARM_USE_OIDC: "true"
         run: |
           terraform init \
@@ -44,6 +38,7 @@ jobs:
             -backend-config="key=terraform.tfstate" \
             -backend-config="use_oidc=true" \
             -backend-config="use_azuread_auth=true"
+            
       - name: Terraform Plan
         id: plan
         env:
@@ -51,15 +46,15 @@ jobs:
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           ARM_USE_OIDC: "true"
-        run: terraform plan
+        run: terraform plan -out=tfplan -detailed-exitcode
         continue-on-error: true
-
+        
       - name: Terraform Apply
         id: apply
-        if: steps.plan.outputs.exitcode == 2
+        if: steps.plan.outcome == 'success' && steps.plan.outputs.exitcode == '2'
         env:
           ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           ARM_USE_OIDC: "true"
-        run: terraform apply -auto-approve
+        run: terraform apply tfplan
