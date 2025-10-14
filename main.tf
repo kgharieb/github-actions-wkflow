@@ -8,6 +8,10 @@ provider "azurerm" {
 resource "azurerm_resource_group" "main" {
     name     = "rg-kgeek-tst"
     location = "West Europe"
+  tags = { 
+  Environment = "Testing"
+  Owner = "kgeek"
+  Project = "Terraform"
 }
 
 resource "azurerm_virtual_network" "kgeek_tst" {
