@@ -13,6 +13,7 @@ resource "azurerm_resource_group" "main" {
   Owner = "kgeek"
   Project = "Terraform"
 }
+}
 
 resource "azurerm_virtual_network" "kgeek_tst" {
     name                = "kgeek-tst"
