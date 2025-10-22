@@ -61,12 +61,12 @@ resource "azurerm_linux_virtual_machine" "example" {
   resource_group_name = azurerm_resource_group.main.name
   size                = "Standard_DS1_v2"
   admin_username      = "adminuser"
-  
+
   network_interface_ids = [
     azurerm_network_interface.example.id,
   ]
 
-  admin_password                  = "Password1234!"
+  admin_password                  = var.admin_password
   disable_password_authentication = false
 
   os_disk {

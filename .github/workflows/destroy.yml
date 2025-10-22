@@ -10,9 +10,15 @@ permissions:
   id-token: write
   contents: read
 
+concurrency:
+  group: terraform-destroy-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   destroy:
     runs-on: ubuntu-latest
+    environment:
+      name: production-destroy
     steps:
       - name: Verify Confirmation
         run: |
@@ -21,22 +27,23 @@ jobs:
             exit 1
           fi
           echo "✅ Confirmation verified. Proceeding with destroy..."
-          
+
       - name: Checkout repository
         uses: actions/checkout@v4
-        
+
       - name: Azure Login with OIDC
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.7.5
-          
+          terraform_wrapper: false
+
       - name: Terraform Init
         env:
           ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -54,19 +61,107 @@ jobs:
             -backend-config="key=terraform.tfstate" \
             -backend-config="use_oidc=true" \
             -backend-config="use_azuread_auth=true"
-            
+
+      - name: Terraform Validate
+        id: validate
+        run: terraform validate -no-color
+
+      - name: Show Current State
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          TF_VAR_admin_password: ${{ secrets.VM_ADMIN_PASSWORD }}
+          ARM_USE_OIDC: "true"
+        run: |
+          echo "### Current Infrastructure State" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          terraform state list >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+          RESOURCE_COUNT=$(terraform state list | wc -l)
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Total resources to be destroyed: $RESOURCE_COUNT**" >> $GITHUB_STEP_SUMMARY
+
       - name: Terraform Destroy Plan
+        id: plan
         env:
           ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          TF_VAR_admin_password: ${{ secrets.VM_ADMIN_PASSWORD }}
           ARM_USE_OIDC: "true"
-        run: terraform plan -destroy -out=tfplan
-        
+        run: |
+          terraform plan -destroy -out=tfplan
+          echo "✅ Destroy plan created successfully"
+
+      - name: Upload Destroy Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-destroy
+          path: tfplan
+          retention-days: 5
+
+      - name: Show Destroy Plan
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          TF_VAR_admin_password: ${{ secrets.VM_ADMIN_PASSWORD }}
+          ARM_USE_OIDC: "true"
+        run: |
+          echo "### Destroy Plan Details" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          terraform show -no-color tfplan >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+      - name: Final Confirmation Checkpoint
+        run: |
+          echo "⚠️  FINAL CHECKPOINT BEFORE DESTRUCTION ⚠️"
+          echo "This is your last chance to cancel this workflow."
+          echo "Proceeding to destroy all infrastructure in 5 seconds..."
+          sleep 5
+
       - name: Terraform Destroy
+        id: destroy
         env:
           ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          TF_VAR_admin_password: ${{ secrets.VM_ADMIN_PASSWORD }}
           ARM_USE_OIDC: "true"
-        run: terraform apply tfplan
+        run: |
+          terraform apply -auto-approve tfplan
+          echo "✅ Infrastructure destroyed successfully"
+
+      - name: Verify Destruction
+        if: always()
+        env:
+          ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          TF_VAR_admin_password: ${{ secrets.VM_ADMIN_PASSWORD }}
+          ARM_USE_OIDC: "true"
+        run: |
+          echo "### Destruction Verification" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          REMAINING_RESOURCES=$(terraform state list 2>/dev/null | wc -l || echo "0")
+          if [ "$REMAINING_RESOURCES" -eq 0 ]; then
+            echo "✅ All resources destroyed successfully" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️  Warning: $REMAINING_RESOURCES resources may still exist" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            terraform state list >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Destroy Summary
+        if: always()
+        run: |
+          echo "### Destroy Operation Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Validation:** ${{ steps.validate.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Plan:** ${{ steps.plan.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Destroy:** ${{ steps.destroy.outcome }}" >> $GITHUB_STEP_SUMMARY
